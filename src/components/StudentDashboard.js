@@ -7,8 +7,7 @@ import { useNavigate } from "react-router-dom";
 const StudentDashboard = () => {
   const [studentInfo, setStudentInfo] = useState(null);
   const [coming, setComing] = useState(null);
-  // eslint-disable-next-line no-unused-vars
-  const [currentTime, setCurrentTime] = useState(new Date("2025-04-15T23:50:00Z"));
+  const [currentTime, setCurrentTime] = useState(new Date());
   const [busRoutes, setBusRoutes] = useState({});
   const [currentPage, setCurrentPage] = useState(0);
   const [showMyRouteOnly, setShowMyRouteOnly] = useState(false);
@@ -17,6 +16,7 @@ const StudentDashboard = () => {
   const googleMapRef = useRef(null);
   const hasFetched = useRef(false);
 
+  // Fetch student info and handle voting timer
   useEffect(() => {
     const user = auth.currentUser;
     if (user) {
@@ -24,6 +24,7 @@ const StudentDashboard = () => {
       const unsubscribe = onValue(studentRef, (snapshot) => {
         const data = snapshot.val();
         setStudentInfo(data);
+        console.log("Student Info:", data);
         const lastVoteDate = data?.lastVoteDate || null;
         const today = new Date().toISOString().split("T")[0];
         if (!lastVoteDate || lastVoteDate !== today) {
@@ -39,23 +40,33 @@ const StudentDashboard = () => {
       console.log("No user logged in");
     }
 
-    // Fixed timestamp for testing
-    setCurrentTime(new Date("2025-04-16T23:50:00Z"));
-    // Timer disabled for testing
-    // const timer = setInterval(() => {
-    //   setCurrentTime(new Date());
-    // }, 60000);
-    // return () => clearInterval(timer);
+    setCurrentTime(new Date());
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000);
+    return () => clearInterval(timer);
   }, []);
 
   const isVotingTime = () => {
-    const hours = currentTime.getHours();
-    return hours >= 11 && hours < 20;
+    const hours = currentTime.getUTCHours();
+    const minutes = currentTime.getUTCMinutes();
+    const canVote = true; //(hours >= 11 && hours < 20) || (hours === 3 && minutes >= 30) || (hours === 4 && minutes <= 0);
+    console.log(
+      "Voting Time Check - Current Time (UTC):",
+      currentTime.toISOString(),
+      "Hours (UTC):",
+      hours,
+      "Minutes:",
+      minutes,
+      "Can Vote:",
+      canVote
+    );
+    return canVote;
   };
 
   const handleComingResponse = async (response) => {
     if (!isVotingTime()) {
-      alert("You can only respond between 12 AM and 8 PM.");
+      alert("You can only respond between 11 AM and 8 PM or during the test window (9:00 AM to 9:30 AM IST).");
       return;
     }
     const user = auth.currentUser;
@@ -71,13 +82,14 @@ const StudentDashboard = () => {
     }
   };
 
+  // Fetch bus routes and initialize map
   useEffect(() => {
     const loader = new Loader({
       apiKey: "AIzaSyC_Ydl8tvlX73YMmf0C6KfNDEmmN1LodMU",
       version: "weekly",
     });
 
-    const initializeMap = async () => {
+    const initializeMapAndFetchRoutes = async () => {
       if (hasFetched.current) return;
       hasFetched.current = true;
 
@@ -89,8 +101,8 @@ const StudentDashboard = () => {
 
         if (mapRef.current && !googleMapRef.current) {
           googleMapRef.current = new maps.Map(mapRef.current, {
-            center: { lat: 9.7679, lng: 4.0511 },
-            zoom: 12,
+            center: { lat: 17.1667, lng: 78.8333 }, // Center on Vignan Institute in Deshmukhi
+            zoom: 10,
           });
           console.log("Map initialized:", googleMapRef.current);
         }
@@ -108,69 +120,138 @@ const StudentDashboard = () => {
         }
         const data = await response.json();
         console.log("Bus routes data received:", JSON.stringify(data.routes, null, 2));
+
         setBusRoutes(data.routes);
-
-        const routesArray = Object.entries(data.routes);
-        const displayRoutes = showMyRouteOnly && studentInfo?.stopID
-          ? routesArray.filter(([_, route]) =>
-              route.some((item) => item.stop.name === `Stop ${studentInfo.stopID}`))
-          : routesArray;
-
-        googleMapRef.current.controls[maps.ControlPosition.TOP_LEFT]?.clear();
-        googleMapRef.current.data.forEach((feature) => googleMapRef.current.data.remove(feature));
-
-        if (displayRoutes.length > 0) {
-          const [busId, route] = displayRoutes[currentPage];
-          if (route.length > 0) {
-            const path = route.map((item) => ({ lat: item.stop.lat, lng: item.stop.lng }));
-            new maps.Polyline({
-              path,
-              geodesic: true,
-              strokeColor: ["#FF0000", "#00FF00", "#0000FF"][busId % 3],
-              strokeOpacity: 1.0,
-              strokeWeight: 2,
-              map: googleMapRef.current,
-            });
-
-            route.forEach((item) => {
-              const stop = item.stop;
-              const eta = item.eta;
-              const stopNumber = stop.name === "College" ? "C" : stop.name.split(" ")[1];
-              new maps.Marker({
-                position: { lat: stop.lat, lng: stop.lng },
-                map: googleMapRef.current,
-                title: `${stop.name} (ETA: ${eta})`,
-                label: {
-                  text: stop.students > 0 ? `${stopNumber} (${stop.students})` : stopNumber,
-                  color: "white",
-                  fontSize: "12px",
-                  fontWeight: "bold",
-                },
-                icon: stop.name === "College" ? {
-                  path: maps.SymbolPath.BACKWARD_CLOSED_ARROW,
-                  fillColor: "#0000FF",
-                  fillOpacity: 1,
-                  strokeWeight: 1,
-                  scale: 8,
-                } : {
-                  path: maps.SymbolPath.CIRCLE,
-                  fillColor: "#FF0000",
-                  fillOpacity: 1,
-                  strokeWeight: 0,
-                  scale: 8,
-                },
-              });
-            });
-          }
-        }
       } catch (error) {
         console.error("Error in map or routes:", error.message, error.stack);
         alert("Failed to load routes: " + error.message);
       }
     };
 
-    initializeMap();
-  }, [showMyRouteOnly, studentInfo]);
+    initializeMapAndFetchRoutes();
+  }, []);
+
+  // Plot all routes on the map
+  useEffect(() => {
+    if (!googleMapRef.current || !busRoutes) return;
+
+    const { maps } = window.google;
+
+    // Clear previous polylines and markers
+    googleMapRef.current.controls[maps.ControlPosition.TOP_LEFT]?.clear();
+    googleMapRef.current.data.forEach((feature) => googleMapRef.current.data.remove(feature));
+    if (googleMapRef.current.polylines) {
+      googleMapRef.current.polylines.forEach((polyline) => polyline.setMap(null));
+    }
+    if (googleMapRef.current.markers) {
+      googleMapRef.current.markers.forEach((marker) => marker.setMap(null));
+    }
+    googleMapRef.current.polylines = [];
+    googleMapRef.current.markers = [];
+
+    // Filter routes based on "Show My Route Only"
+    const routesArray = Object.entries(busRoutes);
+    console.log("Routes Array:", routesArray);
+    const displayRoutes = showMyRouteOnly && studentInfo?.stopID
+      ? routesArray.filter(([_, route]) =>
+          route.stops.some((item) => item.stop.name === `Stop ${studentInfo.stopID}` || item.stop.name === studentInfo.stopID))
+      : routesArray;
+    console.log("Display Routes:", displayRoutes);
+
+    if (displayRoutes.length === 0) {
+      console.log("No routes to display after filtering.");
+      return;
+    }
+
+    // Plot all displayRoutes on the map
+    displayRoutes.forEach(([busId, route]) => {
+      console.log("Plotting Route for Bus", busId, ":", route);
+
+      if (!route || !route.stops || route.stops.length === 0) {
+        console.log("Route is empty for Bus", busId);
+        return;
+      }
+
+      const path = route.stops.map((item) => ({ lat: item.stop.lat, lng: item.stop.lng }));
+      console.log("Polyline Path for Bus", busId, ":", path);
+
+      const polyline = new maps.Polyline({
+        path,
+        geodesic: true,
+        strokeColor: route.color,
+        strokeOpacity: 1.0,
+        strokeWeight: 2,
+        map: googleMapRef.current,
+      });
+      googleMapRef.current.polylines.push(polyline);
+
+      route.stops.forEach((item) => {
+        console.log(`Plotting stop: ${item.stop.name} at lat: ${item.stop.lat}, lng: ${item.stop.lng}`);
+        const stop = item.stop;
+        const eta = item.eta;
+        const labelText = stop.name === "College" ? "C" : stop.name === studentInfo?.stopID ? `S${studentInfo.stopID}` : stop.name.charAt(0);
+        const marker = new maps.Marker({
+          position: { lat: stop.lat, lng: stop.lng },
+          map: googleMapRef.current,
+          title: `${stop.name} (ETA: ${eta}, Bus ${busId})`,
+          label: {
+            text: stop.students > 0 ? `${labelText} (${stop.students})` : labelText,
+            color: "white",
+            fontSize: "12px",
+            fontWeight: "bold",
+          },
+          icon: stop.name === "College" ? {
+            path: maps.SymbolPath.BACKWARD_CLOSED_ARROW,
+            fillColor: "#0000FF",
+            fillOpacity: 1,
+            strokeWeight: 1,
+            scale: 8,
+          } : {
+            path: maps.SymbolPath.CIRCLE,
+            fillColor: route.color,
+            fillOpacity: 1,
+            strokeWeight: 0,
+            scale: 8,
+          },
+        });
+        googleMapRef.current.markers.push(marker);
+      });
+    });
+
+    // Add a legend to the map using DOM manipulation
+    const legendDiv = document.createElement("div");
+    legendDiv.style.backgroundColor = "rgba(255, 255, 255, 0.9)";
+    legendDiv.style.padding = "10px";
+    legendDiv.style.borderRadius = "5px";
+    legendDiv.style.boxShadow = "0 2px 5px rgba(0,0,0,0.2)";
+    legendDiv.style.fontSize = "12px";
+
+    const legendTitle = document.createElement("h4");
+    legendTitle.textContent = "Bus Legend";
+    legendDiv.appendChild(legendTitle);
+
+    displayRoutes.forEach(([busId, route]) => {
+      const legendItem = document.createElement("div");
+      legendItem.style.display = "flex";
+      legendItem.style.alignItems = "center";
+      legendItem.style.margin = "5px 0";
+
+      const colorBox = document.createElement("div");
+      colorBox.style.width = "20px";
+      colorBox.style.height = "10px";
+      colorBox.style.backgroundColor = route.color;
+      colorBox.style.marginRight = "5px";
+
+      const busLabel = document.createElement("span");
+      busLabel.textContent = `Bus ${busId}`;
+
+      legendItem.appendChild(colorBox);
+      legendItem.appendChild(busLabel);
+      legendDiv.appendChild(legendItem);
+    });
+
+    googleMapRef.current.controls[maps.ControlPosition.TOP_LEFT].push(legendDiv);
+  }, [busRoutes, showMyRouteOnly, studentInfo]);
 
   const handleToggleRouteView = () => {
     setShowMyRouteOnly((prev) => !prev);
@@ -184,12 +265,12 @@ const StudentDashboard = () => {
 
   const totalPages = showMyRouteOnly && studentInfo?.stopID
     ? Object.entries(busRoutes).filter(([_, route]) =>
-        route.some((item) => item.stop.name === `Stop ${studentInfo.stopID}`)).length
+        route.stops.some((item) => item.stop.name === `Stop ${studentInfo.stopID}` || item.stop.name === studentInfo.stopID)).length
     : Object.keys(busRoutes).length;
 
   const displayRoutes = showMyRouteOnly && studentInfo?.stopID
     ? Object.entries(busRoutes).filter(([_, route]) =>
-        route.some((item) => item.stop.name === `Stop ${studentInfo.stopID}`))
+        route.stops.some((item) => item.stop.name === `Stop ${studentInfo.stopID}` || item.stop.name === studentInfo.stopID))
     : Object.entries(busRoutes);
 
   return (
@@ -215,7 +296,11 @@ const StudentDashboard = () => {
                 ) : (
                   <p style={styles.infoText}>You selected: {coming}</p>
                 )}
-                {!isVotingTime() && <p style={styles.warning}>Voting: 4 PM - 10 PM</p>}
+                {!isVotingTime() && (
+                  <p style={styles.warning}>
+                    Voting: 11 AM - 8 PM UTC (4:30 PM - 1:30 AM IST) or 9:00 AM - 9:30 AM IST (Test)
+                  </p>
+                )}
               </div>
 
               <div style={styles.routesBox}>
@@ -232,7 +317,7 @@ const StudentDashboard = () => {
                     <div style={styles.routeInfo}>
                       <h4 style={styles.routeTitle}>Bus {displayRoutes[currentPage][0]}</h4>
                       <ul style={styles.routeList}>
-                        {displayRoutes[currentPage][1].map((item, index) => (
+                        {displayRoutes[currentPage][1].stops.map((item, index) => (
                           <li key={index} style={styles.routeItem}>
                             {item.stop.name} - Students: {item.stop.students}, ETA: {item.eta}
                           </li>
